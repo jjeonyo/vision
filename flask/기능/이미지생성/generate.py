@@ -11,7 +11,7 @@ import time
 
 # 1. 환경 설정 (.env 파일 로드)
 
-project_root = Path(__file__).resolve().parents[2]  # vision/
+project_root = Path(__file__).resolve().parents[2]
 load_dotenv(project_root / ".env")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -29,10 +29,9 @@ def create_visual_prompt(user_problem):
     """
     print(f"🤔 상황 분석 중: '{user_problem}'...")
     
-    # Gemini 1.5 Flash를 사용하여 프롬프트 엔지니어링 수행
     # 한글 입력을 받아 Imagen이 잘 알아듣는 고품질 영어 프롬프트로 바꿉니다.
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         contents=f"""
         당신은 AI 이미지 생성 프롬프트 전문가입니다.
         사용자가 겪고 있는 가전제품 문제: "{user_problem}"
@@ -95,36 +94,22 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
 # 권한이 있다고 가정했을 때의 코드 구조입니다.
 
 
-def generate_solution_video(visual_prompt, output_filename):
-    print("🎥 비디오 생성 요청 중 (Veo-3.1 모델)...")
-    
-    try:
-        # 1. 비디오 생성 요청 (티켓 발급)
-        operation = client.models.generate_videos(
-            model="veo-3.1-generate-preview",
-            prompt=visual_prompt + ", slow motion, instructional video, cinematic lighting",
-            config=types.GenerateVideosConfig(
-                number_of_videos=1
-            )
-        )
-        
-        print("⏳ 비디오 생성 중입니다. 잠시만 기다려주세요 (약 1~2분 소요)...")
-        
-        # 2. 대기 (Polling)
-        while not operation.done:
-            print(".", end="", flush=True)
-            time.sleep(10)
-            operation = client.operations.get(operation)
-            
-        print("\n✨ 생성 완료! 다운로드를 시작합니다.")
+def generate_solution_video(visual_prompt, output_filename="solution.mp4"):
+    operation = client.models.generate_videos(
+    model="veo-3.1-generate-preview",
+    prompt=visual_prompt,
+)
 
-        # 3. 결과물 저장 (가장 확실한 방법)
-        if operation.response and operation.response.generated_videos:
-            generated_video = operation.response.generated_videos[0]
-            client.files.download(file=generated_video.video)
-            generated_video.video.save(output_filename)
-            print(f"✅ 해결책 비디오가 저장되었습니다: {output_filename}")
+    while not operation.done:
+        print("Waiting for video generation to complete...")
+        time.sleep(3)
+        operation = client.operations.get(operation)
 
+    # Download the generated video.
+    generated_video = operation.response.generated_videos[0]
+    client.files.download(file=generated_video.video)
+    generated_video.video.save(output_filename)
+    print(f"Generated video saved to {output_filename}")
 
 
     
@@ -156,4 +141,5 @@ if __name__ == "__main__":
         generate_solution_image(prompt, str(output_filename))
 
         video_filename = output_dir / f"result_solution_{timestamp}.mp4"
-        generate_solution_video(prompt, str(video_filename))
+
+        generate_solution_video(prompt, str(video_filename)) # Veo 권한이 없어서 주석 처리        # generate_solution_video(prompt, str(video_filename)) # Veo 권한이 없어서 주석 처리
