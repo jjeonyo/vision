@@ -1,12 +1,18 @@
 import os
 import io
+import pathlib
+from pathlib import Path
+import datetime
 from dotenv import load_dotenv
 import google.genai as genai
 from google.genai import types
 from PIL import Image
+import time
 
 # 1. 환경 설정 (.env 파일 로드)
-load_dotenv()
+
+project_root = Path(__file__).resolve().parents[2]  # vision/
+load_dotenv(project_root / ".env")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not API_KEY:
@@ -31,15 +37,14 @@ def create_visual_prompt(user_problem):
         당신은 AI 이미지 생성 프롬프트 전문가입니다.
         사용자가 겪고 있는 가전제품 문제: "{user_problem}"
         
-        이 문제를 해결하기 위해 사용자가 취해야 할 행동을 보여주는 '사용 설명서 스타일'의 이미지 프롬프트를 작성하세요.
-        
+        이 문제를 해결하기 위해 사용자가 취해야 할 행동을 보여주는 이미지 프롬프트를 작성하세요.
+        당신이 작성하는 프롬프트는 Imagen이 잘 알아듣는 고품질 영어 프롬프트로 작성하세요.
+
         [요구사항]
-        1. 한글로 작성하세요. 작성할 때 한글이 깨지지 않도록 유니코드 설정을 잘 조절하세요.
-        2. 사실적이고(Photorealistic), 깨끗한 조명(Studio lighting)을 강조하세요.
-        3. 사람의 손이 특정 부위를 조작하는 모습을 묘사하세요.
-        4. 불필요한 설명 없이 프롬프트 문장만 출력하세요.
-        5. 실제로 존재하는 LG전자 가전제품의 모델명의 사용 설명서를 찾아서 그 기반으로 작성하세요.
-        예시: 세탁기 배수 필터 캡을 시계 반대 방향으로 돌리는 손의 모습을 사실적으로 클로즈업한 사진입니다. 깨끗하고 밝은 조명, 사용 설명서 스타일입니다.        """
+        1. 사실적이고(Photorealistic), 깨끗한 조명(Studio lighting)을 강조하세요.
+        2. 실제로 존재하는 LG전자 가전제품의 모델명의 사용 설명서를 찾은 다음 그 기반으로 작성하세요.
+        3. 생성하는 이미지에는 글자를 작성하지 마세요.
+               """
     )
     
     visual_prompt = response.text.strip()
@@ -54,12 +59,12 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
     print("🎨 이미지 그리는 중... (약 5~10초 소요)")
     
     try:
-        # Imagen 3 모델 호출
+        # Imagen 모델 호출
         response = client.models.generate_images(
             model='imagen-4.0-generate-001',
             prompt=visual_prompt,
             config=types.GenerateImagesConfig(
-                number_of_images=1,
+                #number_of_images=1,
                 aspect_ratio="16:9", # 영상처럼 보이게 와이드 비율 설정
                 person_generation="allow_adult" # 손이나 사람이 나와야 하므로 허용
             )
@@ -88,19 +93,43 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
 # 4. [보너스: 비디오 생성] (Veo 모델 접근 권한 필요)
 # 현재 대부분의 계정에서 Imagen(이미지)은 되지만 Veo(영상)는 웨이트리스트인 경우가 많습니다.
 # 권한이 있다고 가정했을 때의 코드 구조입니다.
-def generate_solution_video(visual_prompt):
-    print("🎥 비디오 생성 시도 (Veo 모델 권한 필요)...")
-    print("ℹ️ 현재는 이미지 생성으로 대체합니다. (Veo API 권한 확인 필요)")
-    
-    # 실제 Veo 코드는 아래와 유사합니다 (가상 코드)
-    # response = client.models.generate_video(
-    #     model='veo-2.0-generate-001',
-    #     prompt=visual_prompt + ", slow motion, instructional video",
-    #     config=types.GenerateVideoConfig(seconds=5)
-    # )
-    # ... 저장 로직 ...
 
-# === 메인 실행부 ===
+
+def generate_solution_video(visual_prompt, output_filename):
+    print("🎥 비디오 생성 요청 중 (Veo-3.1 모델)...")
+    
+    try:
+        # 1. 비디오 생성 요청 (티켓 발급)
+        operation = client.models.generate_videos(
+            model="veo-3.1-generate-preview",
+            prompt=visual_prompt + ", slow motion, instructional video, cinematic lighting",
+            config=types.GenerateVideosConfig(
+                number_of_videos=1
+            )
+        )
+        
+        print("⏳ 비디오 생성 중입니다. 잠시만 기다려주세요 (약 1~2분 소요)...")
+        
+        # 2. 대기 (Polling)
+        while not operation.done:
+            print(".", end="", flush=True)
+            time.sleep(10)
+            operation = client.operations.get(operation)
+            
+        print("\n✨ 생성 완료! 다운로드를 시작합니다.")
+
+        # 3. 결과물 저장 (가장 확실한 방법)
+        if operation.response and operation.response.generated_videos:
+            generated_video = operation.response.generated_videos[0]
+            client.files.download(file=generated_video.video)
+            generated_video.video.save(output_filename)
+            print(f"✅ 해결책 비디오가 저장되었습니다: {output_filename}")
+
+
+
+    
+ 
+# === 메인실행부 ===
 if __name__ == "__main__":
     # 사용자 시나리오 테스트
     print("--- 🛠️ AI 해결책 생성기 (First 기능) ---")
@@ -116,4 +145,15 @@ if __name__ == "__main__":
     
     # 2. 이미지 생성
     if prompt:
-        generate_solution_image(prompt, "result_solution.png")
+        # 생성된사진 폴더 경로 설정
+        current_dir = pathlib.Path(__file__).parent.absolute()
+        output_dir = current_dir / "assets_generate"
+        output_dir.mkdir(exist_ok=True)  # 폴더가 없으면 생성
+        
+        # 파일명 생성 (타임스탬프 포함하여 중복 방지)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = output_dir / f"result_solution_{timestamp}.png"
+        generate_solution_image(prompt, str(output_filename))
+
+        video_filename = output_dir / f"result_solution_{timestamp}.mp4"
+        generate_solution_video(prompt, str(video_filename))
