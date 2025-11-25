@@ -1,13 +1,16 @@
 import os
 import google.generativeai as genai
+from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # ==========================================
-# 1. 설정 정보 (upload_manual.py와 동일하게 입력)
+# 1. 설정 정보 upload_manual.py와 동일하게 입력)
 # ==========================================
+load_dotenv()  # load variables from .env into environment
+
 SUPABASE_URL = "https://wzafalbctqkylhyzlfej.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind6YWZhbGJjdHFreWxoeXpsZmVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDAzNTM5NywiZXhwIjoyMDc5NjExMzk3fQ.Ax6HgxBruVRbUIhYtmDKK1yW8OkoSGjFg3GLupS91uI" # 혹은 ANON KEY
-GOOGLE_API_KEY = "AIzaSyCE8-7jyJBbugZX6GRCMvGhPfBtkZeXXY0"
+SUPABASE_KEY = os.getenv("supbase_service_role")
+GOOGLE_API_KEY = os.getenv("google_api")
 # ==========================================
 
 # API 초기화
@@ -29,15 +32,33 @@ def get_embedding(text):
 def search_manual(query_text):
     """DB에서 유사한 매뉴얼 내용 검색 (RAG - Retrieval)"""
     
-    # 1. 질문을 벡터로 변환
+    # ✅ [1] 여기가 빠져서 에러가 났던 겁니다! (질문 -> 벡터 변환)
     query_vector = get_embedding(query_text)
     
-    # 2. Supabase RPC 함수 호출 (벡터 검색)
+    # 임베딩이 실패했을 경우 방어 코드
+    if not query_vector:
+        print("❌ 질문을 벡터로 변환하는데 실패했습니다.")
+        return []
+
+    # [2] Supabase 검색 요청
+    # (주의: 만약 model_id 필터링 기능을 아직 RPC 함수에 안 넣으셨다면 filter_model_id 줄은 지우세요)
     response = supabase.rpc("match_manual_sections", {
         "query_embedding": query_vector,
-        "match_threshold": 0.1, # 유사도 50% 이상만 (너무 낮으면 엉뚱한 거 가져옴)
-        "match_count": 5        # 가장 비슷한 내용 3개만 가져오기
+        "match_threshold": 0.1, # 점수를 0.3으로 낮춤 (더 많이 찾게)
+        "match_count": 5
     }).execute()
+    
+    # [3] 디버깅: 무엇이 검색됐는지 눈으로 확인
+    if response.data:
+        print(f"\n🔍 '{query_text}' 검색 결과 (Top 5):")
+        for i, item in enumerate(response.data):
+            # 내용이 너무 길면 100자만 보여주기
+            preview = item['content_text'][:100].replace('\n', ' ')
+            print(f"   [{i+1}] 유사도: {item['similarity']:.4f} | 제목: {item['section_title']}")
+            print(f"       내용: {preview}...")
+            print("-" * 40)
+    else:
+        print("\n⚠️ 검색 결과가 없습니다. (유사도 기준 미달)")
     
     return response.data
 
@@ -55,7 +76,7 @@ def generate_answer(query_text, context_list):
     당신은 LG 스탠드 에어컨 사용을 도와주는 친절한 AI 어시스턴트입니다.
     아래 제공된 [매뉴얼 내용]을 바탕으로 사용자의 [질문]에 답변하세요.
     메뉴얼에 제공되지 않은 내용은 메뉴얼에 없는 내용이라고 답변해
-    
+    질문을 문제상황에 맞게 원인과 해결방법을 함께 답변해주세요.
     
     [매뉴얼 내용]:
     {context_text}
@@ -94,7 +115,6 @@ def main():
         
         print("\n💬 AI 답변:")
         print(answer)
-        print(context_text)
         print("-" * 50)
 
 if __name__ == "__main__":

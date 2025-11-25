@@ -3,13 +3,16 @@ import time
 import google.generativeai as genai
 from supabase import create_client, Client
 from pypdf import PdfReader
-
+from dotenv import load_dotenv
 # ==========================================
 # 1. 설정 정보 (여기를 꼭 채워주세요!)
 # ==========================================
+
+load_dotenv()  # load variables from .env into environment
+
 SUPABASE_URL = "https://wzafalbctqkylhyzlfej.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind6YWZhbGJjdHFreWxoeXpsZmVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDAzNTM5NywiZXhwIjoyMDc5NjExMzk3fQ.Ax6HgxBruVRbUIhYtmDKK1yW8OkoSGjFg3GLupS91uI" # service_role 키 권장
-GOOGLE_API_KEY = "AIzaSyCE8-7jyJBbugZX6GRCMvGhPfBtkZeXXY0"
+SUPABASE_KEY = os.getenv("supbase_service_role")
+GOOGLE_API_KEY = os.getenv("google_api")
 
 # 파일명과 모델명 확인
 PDF_FILE_PATH = "MFL69354434_190730_Koream.pdf" 
