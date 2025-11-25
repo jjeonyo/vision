@@ -1,1 +1,7 @@
+<<<<<<< HEAD
 .env
+=======
+flask/.env
+.env
+flask/기능/이미지생성/assets_generate
+>>>>>>> 4c7ff988bcfd618738e1a7bc7d28938f4f96ee07
