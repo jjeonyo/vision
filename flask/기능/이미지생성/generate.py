@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import google.genai as genai
 from google.genai import types
 from PIL import Image
+import time
 
 # 1. 환경 설정 (.env 파일 로드)
 
@@ -63,7 +64,7 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
             model='imagen-4.0-generate-001',
             prompt=visual_prompt,
             config=types.GenerateImagesConfig(
-                number_of_images=1,
+                #number_of_images=1,
                 aspect_ratio="16:9", # 영상처럼 보이게 와이드 비율 설정
                 person_generation="allow_adult" # 손이나 사람이 나와야 하므로 허용
             )
@@ -92,20 +93,42 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
 # 4. [보너스: 비디오 생성] (Veo 모델 접근 권한 필요)
 # 현재 대부분의 계정에서 Imagen(이미지)은 되지만 Veo(영상)는 웨이트리스트인 경우가 많습니다.
 # 권한이 있다고 가정했을 때의 코드 구조입니다.
-def generate_solution_video(visual_prompt):
-    print("🎥 비디오 생성 시도 (Veo 모델 권한 필요)...")
-    print("ℹ️ 현재는 이미지 생성으로 대체합니다. (Veo API 권한 확인 필요)")
+
+
+def generate_solution_video(visual_prompt, output_filename):
+    print("🎥 비디오 생성 요청 중 (Veo-3.1 모델)...")
     
-    response = client.models.generate_video(
-        model='veo-2.0-generate-001',
-        prompt=visual_prompt + ", slow motion, instructional video",
-        config=types.GenerateVideoConfig(seconds=5)
-    )
-    if response.generated_video:
-        video_data = response.generated_video.video_bytes
-        video = io.BytesIO(video_data)
-        video.save(output_filename)
-        print(f"✅ 해결책 비디오가 저장되었습니다: {output_filename}")    
+    try:
+        # 1. 비디오 생성 요청 (티켓 발급)
+        operation = client.models.generate_videos(
+            model="veo-3.1-generate-preview",
+            prompt=visual_prompt + ", slow motion, instructional video, cinematic lighting",
+            config=types.GenerateVideosConfig(
+                number_of_videos=1
+            )
+        )
+        
+        print("⏳ 비디오 생성 중입니다. 잠시만 기다려주세요 (약 1~2분 소요)...")
+        
+        # 2. 대기 (Polling)
+        while not operation.done:
+            print(".", end="", flush=True)
+            time.sleep(10)
+            operation = client.operations.get(operation)
+            
+        print("\n✨ 생성 완료! 다운로드를 시작합니다.")
+
+        # 3. 결과물 저장 (가장 확실한 방법)
+        if operation.response and operation.response.generated_videos:
+            generated_video = operation.response.generated_videos[0]
+            client.files.download(file=generated_video.video)
+            generated_video.video.save(output_filename)
+            print(f"✅ 해결책 비디오가 저장되었습니다: {output_filename}")
+
+
+
+    
+ 
 # === 메인실행부 ===
 if __name__ == "__main__":
     # 사용자 시나리오 테스트
@@ -130,5 +153,7 @@ if __name__ == "__main__":
         # 파일명 생성 (타임스탬프 포함하여 중복 방지)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = output_dir / f"result_solution_{timestamp}.png"
-        
         generate_solution_image(prompt, str(output_filename))
+
+        video_filename = output_dir / f"result_solution_{timestamp}.mp4"
+        generate_solution_video(prompt, str(video_filename))
