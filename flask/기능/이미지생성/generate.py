@@ -8,7 +8,7 @@ import google.genai as genai
 from google.genai import types
 from PIL import Image
 import time
-
+##################### 영상 생성 1초에 천원이니까 신중하게 돌릴 것 #######################
 # 1. 환경 설정 (.env 파일 로드)
 
 project_root = Path(__file__).resolve().parents[2]
@@ -38,7 +38,7 @@ def create_visual_prompt(user_problem):
         
         이 문제를 해결하기 위해 사용자가 취해야 할 행동을 보여주는 이미지 프롬프트를 작성하세요.
         당신이 작성하는 프롬프트는 Imagen이 잘 알아듣는 고품질 영어 프롬프트로 작성하세요.
-        
+
         [요구사항]
         1. 사실적이고(Photorealistic), 깨끗한 조명(Studio lighting)을 강조하세요.
         2. 실제로 존재하는 LG전자 가전제품의 모델명의 사용 설명서를 찾은 다음 그 기반으로 작성하세요.
@@ -64,7 +64,7 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
             prompt=visual_prompt,
             config=types.GenerateImagesConfig(
                 #number_of_images=1,
-                aspect_ratio="3:4", # 영상처럼 보이게 와이드 비율 설정
+                aspect_ratio="9:16",
                 person_generation="allow_adult" # 손이나 사람이 나와야 하므로 허용
             )
         )
@@ -96,9 +96,13 @@ def generate_solution_image(visual_prompt, output_filename="solution.png"):
 
 def generate_solution_video(visual_prompt, output_filename="solution.mp4"):
     operation = client.models.generate_videos(
-    model="veo-3.1-generate-preview",
-    prompt=visual_prompt,
-)
+        model="veo-3.1-generate-preview",
+        prompt=visual_prompt,
+        config=types.GenerateVideosConfig(
+            aspect_ratio="9:16",
+            duration_seconds=5,
+        )
+    )
 
     while not operation.done:
         print("Waiting for video generation to complete...")
