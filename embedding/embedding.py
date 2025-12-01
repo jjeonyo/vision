@@ -10,7 +10,7 @@ from langchain_core.documents import Document
 
 # 1. 환경 변수 로드 및 Google API 설정
 load_dotenv()
-GOOGLE_API_KEY = "AIzaSyAzWTcKMUc04wzJ4qqTjcZPxiMHLYDe_ZA"
+GOOGLE_API_KEY = ""
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
