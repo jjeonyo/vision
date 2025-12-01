@@ -9,6 +9,9 @@ from google.genai import types
 from PIL import Image
 import time
 import sqlite3
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
 
 ##################### 영상 생성 1초에 천원이니까 신중하게 돌릴 것 #######################
 # 1. 환경 설정 (.env 파일 로드)
@@ -17,6 +20,12 @@ project_root = Path(__file__).resolve().parents[2]
 load_dotenv(project_root / ".env")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
+# Firebase 설정 (vision.py와 동일한 키 사용)
+FIREBASE_KEY_PATH = project_root / "flask/기능/실시간비전/firebase_key.json"
+# Realtime Database URL도 vision.py와 동일해야 함 (환경변수나 상수로 관리 추천)
+# 여기서는 예시 URL 사용 (vision.py에서 수정한 URL로 변경 필요)
+FIREBASE_DB_URL = "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com/" 
+
 if not API_KEY:
     print("❌ API 키가 없습니다. .env 파일을 확인하거나 코드를 수정하세요.")
     exit()
@@ -24,52 +33,60 @@ if not API_KEY:
 # 클라이언트 초기화
 client = genai.Client(api_key=API_KEY)
 
+def init_firebase():
+    """Firebase 초기화 (이미 초기화되어 있으면 패스)"""
+    try:
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(str(FIREBASE_KEY_PATH))
+            firebase_admin.initialize_app(cred, {
+                'databaseURL': FIREBASE_DB_URL
+            })
+            print("🔥 Firebase 연결 성공!")
+    except Exception as e:
+        print(f"❌ Firebase 초기화 오류: {e}")
+
 def get_latest_conversation_context():
     """
-    vision.py에서 생성한 chat_history.db에서 가장 최근 대화 내용을 가져옵니다.
+    Firebase Realtime Database에서 가장 최근 세션의 대화 내용을 가져옵니다.
     """
-    # DB 경로 설정 (현재 파일 위치 기준)
-    current_dir = pathlib.Path(__file__).parent.absolute()
-    db_path = current_dir.parent / "실시간비전" / "chat_history.db"
+    init_firebase()
     
-    if not db_path.exists():
-        print(f"❌ DB 파일을 찾을 수 없습니다: {db_path}")
-        return None
-
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        # 1. 모든 세션 가져오기 (세션 ID가 타임스탬프이므로 정렬 가능)
+        sessions_ref = db.reference('sessions')
+        sessions = sessions_ref.order_by_key().limit_to_last(1).get()
         
-        # 1. 가장 최근 세션 ID 조회
-        cursor.execute("SELECT id FROM sessions ORDER BY id DESC LIMIT 1")
-        result = cursor.fetchone()
-        
-        if not result:
+        if not sessions:
             print("❌ 저장된 대화 세션이 없습니다.")
-            conn.close()
             return None
             
-        session_id = result[0]
+        # 최근 세션 ID와 데이터 추출
+        session_id = list(sessions.keys())[0]
+        session_data = sessions[session_id]
+        
         print(f"📖 최근 대화 세션(ID: {session_id})을 불러옵니다...")
         
-        # 2. 해당 세션의 메시지 조회
-        cursor.execute("SELECT sender, content FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,))
-        messages = cursor.fetchall()
-        conn.close()
-        
-        if not messages:
-            print("❌ 대화 내용이 비어있습니다.")
+        # 2. 해당 세션의 메시지 가져오기
+        if 'messages' not in session_data:
+            print("❌ 이 세션에는 대화 내용이 없습니다.")
             return None
             
+        messages_dict = session_data['messages']
+        
+        # 메시지 정렬 (push ID 기준, 시간순)
+        sorted_messages = sorted(messages_dict.items(), key=lambda x: x[0])
+        
         # 3. 대화 내용 포맷팅
         conversation_text = ""
-        for sender, content in messages:
+        for msg_id, msg_data in sorted_messages:
+            sender = msg_data.get('sender', 'unknown')
+            content = msg_data.get('content', '')
             conversation_text += f"[{sender}]: {content}\n"
             
         return conversation_text.strip()
 
     except Exception as e:
-        print(f"❌ DB 읽기 오류: {e}")
+        print(f"❌ Firebase 읽기 오류: {e}")
         return None
 
 # 2. [1단계: 작가 AI] 문제 상황을 시각적 묘사로 변환

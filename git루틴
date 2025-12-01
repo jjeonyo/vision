@@ -1,0 +1,17 @@
+시작: git checkout main ➡ git pull origin main (내 컴퓨터 main 최신화)
+
+작업: git checkout -b 새브랜치 (새 명찰 파기) ➡ 작업 ➡ 저장(Commit)
+
+업로드: 동기화(Push) 누르기
+
+PR: 웹사이트 가서 Compare & pull request ➡ Create PR
+
+병합: 승인받고 Merge pull request 누르기 (여기까진 말씀하신 것과 똑같아요!)
+
+복귀 & 최신화 (여기가 중요 ✨):
+
+내 컴퓨터에서 git checkout main (다시 메인으로 돌아옴)
+
+git pull origin main (합쳐진 내용을 받아옴)
+
+삭제 (선택): 다 쓴 브랜치는 git branch -d 브랜치명으로 삭제

@@ -13,6 +13,9 @@ import speech_recognition as sr
 import audioop
 import sqlite3
 import textwrap
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
 from dotenv import load_dotenv
 
 # [수정] google.genai에서 types 임포트
@@ -75,7 +78,7 @@ MIC_DEVICE_INDEX = None
 
 def get_config():
     current_dir = pathlib.Path(__file__).parent.absolute()
-    persona_path = current_dir / "persona_세탁기수리법.txt"
+    persona_path = current_dir / "persona_세탁법.txt"
     
     system_instruction = ""
     if persona_path.exists():
@@ -100,49 +103,48 @@ def get_config():
     }
 
 # ==========================================
-# [클래스] DB 로그 저장 (SQLite)
+# [클래스] DB 로그 저장 (Firebase Realtime Database)
 # ==========================================
 class DatabaseLogger:
-    def __init__(self, db_path="chat_history.db"):
-        self.db_path = db_path
+    def __init__(self, cred_path="firebase_key.json", database_url="https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com/"):
+        self.cred_path = cred_path
+        self.database_url = database_url
         self.buffer = []
         self.session_id = None
-        self._init_db()
+        self._init_firebase()
         self._start_session()
 
-    def _init_db(self):
-        """DB 테이블 초기화"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            # 세션 테이블
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    model_id TEXT
-                )
-            ''')
-            # 메시지 테이블
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id INTEGER,
-                    sender TEXT,
-                    content TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (session_id) REFERENCES sessions (id)
-                )
-            ''')
-            conn.commit()
+    def _init_firebase(self):
+        """Firebase 초기화"""
+        try:
+            # 이미 초기화되었는지 확인
+            if not firebase_admin._apps:
+                cred = credentials.Certificate(self.cred_path)
+                firebase_admin.initialize_app(cred, {
+                    'databaseURL': self.database_url
+                })
+                print("🔥 Firebase 연결 성공!")
+            else:
+                print("🔥 Firebase 이미 연결됨")
+        except Exception as e:
+            print(f"❌ Firebase 초기화 오류: {e}")
+            print("⚠️ firebase_key.json 파일과 database_url을 확인해주세요.")
 
     def _start_session(self):
         """새로운 대화 세션 시작"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO sessions (model_id) VALUES (?)', (MODEL_ID,))
-            self.session_id = cursor.lastrowid
-            conn.commit()
-        print(f"💾 DB 세션 시작됨: ID {self.session_id}")
+        try:
+            # 세션 ID 생성 (타임스탬프 기반)
+            self.session_id = str(int(time.time()))
+            session_ref = db.reference(f'sessions/{self.session_id}')
+            
+            session_data = {
+                'start_time': time.strftime("%Y-%m-%d %H:%M:%S"),
+                'model_id': MODEL_ID
+            }
+            session_ref.set(session_data)
+            print(f"💾 Firebase 세션 시작됨: ID {self.session_id}")
+        except Exception as e:
+            print(f"❌ 세션 시작 오류: {e}")
 
     def append_text(self, text):
         self.buffer.append(text)
@@ -150,15 +152,18 @@ class DatabaseLogger:
     def log_user_message(self, text):
         """사용자 메시지 저장"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO messages (session_id, sender, content) 
-                    VALUES (?, ?, ?)
-                ''', (self.session_id, 'user', text))
-                conn.commit()
+            if self.session_id:
+                messages_ref = db.reference(f'sessions/{self.session_id}/messages')
+                new_message_ref = messages_ref.push() # 고유 키 생성
+                
+                message_data = {
+                    'sender': 'user',
+                    'content': text,
+                    'created_at': time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                new_message_ref.set(message_data)
         except Exception as e:
-            print(f"\n⚠️ DB 저장 실패 (User): {e}")
+            print(f"\n⚠️ Firebase 저장 실패 (User): {e}")
 
     def flush_model_turn(self):
         """모델 응답 저장"""
@@ -167,17 +172,32 @@ class DatabaseLogger:
         full_text = "".join(self.buffer)
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO messages (session_id, sender, content) 
-                    VALUES (?, ?, ?)
-                ''', (self.session_id, 'gemini', full_text))
-                conn.commit()
+            if self.session_id:
+                messages_ref = db.reference(f'sessions/{self.session_id}/messages')
+                new_message_ref = messages_ref.push()
+                
+                message_data = {
+                    'sender': 'gemini',
+                    'content': full_text,
+                    'created_at': time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                new_message_ref.set(message_data)
         except Exception as e:
-            print(f"\n⚠️ DB 저장 실패 (Gemini): {e}")
+            print(f"\n⚠️ Firebase 저장 실패 (Gemini): {e}")
             
         self.buffer = []
+    
+    def save_feedback(self, score):
+        """피드백 저장"""
+        try:
+            if self.session_id:
+                session_ref = db.reference(f'sessions/{self.session_id}')
+                session_ref.update({
+                    'feedback': score
+                })
+                print("✅ Firebase에 피드백 저장 완료!")
+        except Exception as e:
+            print(f"❌ 피드백 저장 오류: {e}")
 
 # ==========================================
 # [클래스] STT 처리기 (백그라운드 스레드)
@@ -453,7 +473,20 @@ async def main():
             traceback.print_exc()
         finally:
             stt_transcriber.stop()
-            print("\n👋 상담이 종료되었습니다.")
+            
+            # [종료 시퀀스] 사용자 피드백 수집
+            print("\n" + "="*40)
+            print("👋 상담이 종료되었습니다.")
+            try:
+                feedback = input("💡 이번 상담이 도움이 되셨나요? (y/n): ").strip().lower()
+                feedback_score = 1 if feedback == 'y' else 0
+                
+                # 마지막 세션 ID 가져오기 및 피드백 업데이트
+                if logger.session_id:
+                    logger.save_feedback(feedback_score)
+            except Exception as e:
+                print(f"피드백 저장 오류: {e}")
+            print("="*40 + "\n")
 
             if cap.isOpened(): cap.release()
             if input_stream: input_stream.stop_stream(); input_stream.close()
